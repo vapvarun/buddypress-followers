@@ -14,15 +14,61 @@ defined( 'ABSPATH' ) || exit;
  *
  * @uses bp_core_load_template() Loads a template file.
  */
+/**
+ * Catches any visits to the "Followers (X)" tab on a users profile.
+ *
+ * @uses bp_core_load_template() Loads a template file.
+ */
 function bp_follow_screen_followers() {
+    do_action('bp_follow_screen_followers');
+    
+    // Add our content to the template
+    add_action('bp_template_content', 'bp_follow_screen_followers_content');
+    
+    // Load the plugins template
+    bp_core_load_template('members/single/plugins');
+}
 
-	do_action( 'bp_follow_screen_followers' );
-
-	// ignore the template referenced here
-	// 'members/single/followers' is for older themes already using this template
-	//
-	// view bp_follow_load_template_filter() for more info.
-	bp_core_load_template( 'members/single/followers' );
+/**
+ * Content for the followers screen.
+ */
+function bp_follow_screen_followers_content() {
+    echo '<div id="members-dir-list" class="dir-list members follow followers" data-bp-list="members">';
+    
+    // If BP Nouveau is active
+    if (function_exists('bp_nouveau')) {
+        echo '<div id="bp-ajax-loader">';
+        bp_nouveau_user_feedback('generic-loading');
+        echo '</div>';
+    }
+    
+    // Make sure the members query gets the right users
+    add_filter('bp_ajax_querystring', function($qs, $object) {
+        if ($object !== 'members') return $qs;
+        
+        $args = wp_parse_args($qs);
+        
+        // Get followers of displayed user
+        $followers = bp_follow_get_followers(array(
+            'user_id' => bp_displayed_user_id()
+        ));
+        
+        if (empty($followers)) {
+            $followers = array(0); // No one is following, use 0 to return no results
+        }
+        
+        $args['include'] = $followers;
+        $args['per_page'] = 20;
+        
+        return build_query($args);
+    }, 20, 2);
+    
+    bp_get_template_part('members/members-loop');
+    
+    echo '</div>';
+    
+    // Add JavaScript to fix AJAX issues
+    add_action('wp_footer', 'bp_follow_fix_ajax_script', 30);
 }
 
 /**
@@ -31,14 +77,55 @@ function bp_follow_screen_followers() {
  * @uses bp_core_load_template() Loads a template file.
  */
 function bp_follow_screen_following() {
+    do_action('bp_follow_screen_following');
+    
+    // Add our content to the template
+    add_action('bp_template_content', 'bp_follow_screen_following_content');
+    
+    // Load the plugins template
+    bp_core_load_template('members/single/plugins');
+}
 
-	do_action( 'bp_follow_screen_following' );
-
-	// ignore the template referenced here
-	// 'members/single/following' is for older themes already using this template
-	//
-	// view bp_follow_load_template_filter() for more info.
-	bp_core_load_template( 'members/single/following' );
+/**
+ * Content for the following screen.
+ */
+function bp_follow_screen_following_content() {
+    echo '<div id="members-dir-list" class="dir-list members follow following" data-bp-list="members">';
+    
+    // If BP Nouveau is active
+    if (function_exists('bp_nouveau')) {
+        echo '<div id="bp-ajax-loader">';
+        bp_nouveau_user_feedback('generic-loading');
+        echo '</div>';
+    }
+    
+    // Make sure the members query gets the right users
+    add_filter('bp_ajax_querystring', function($qs, $object) {
+        if ($object !== 'members') return $qs;
+        
+        $args = wp_parse_args($qs);
+        
+        // Get users that the displayed user is following
+        $following = bp_follow_get_following(array(
+            'user_id' => bp_displayed_user_id()
+        ));
+        
+        if (empty($following)) {
+            $following = array(0); // Not following anyone, use 0 to return no results
+        }
+        
+        $args['include'] = $following;
+        $args['per_page'] = 20;
+        
+        return build_query($args);
+    }, 20, 2);
+    
+    bp_get_template_part('members/members-loop');
+    
+    echo '</div>';
+    
+    // Add JavaScript to fix AJAX issues
+    add_action('wp_footer', 'bp_follow_fix_ajax_script', 30);
 }
 
 /**
@@ -212,4 +299,47 @@ function bp_follow_add_members_dropdown_filter() {
 	</li>
 
 <?php
+}
+
+
+/**
+ * Add JavaScript to fix AJAX loading issues on follow pages.
+ */
+function bp_follow_fix_ajax_script() {
+    if (!bp_is_user()) {
+        return;
+    }
+    
+    $bp = $GLOBALS['bp'];
+    
+    if (bp_is_current_component($bp->follow->followers->slug) || 
+        bp_is_current_component($bp->follow->following->slug)) {
+    ?>
+    <script type="text/javascript">
+    jQuery(document).ready(function() {
+        // Remove no-ajax class
+        jQuery('#subnav').removeClass('no-ajax');
+        jQuery('#members-dir-list').removeClass('no-ajax');
+        
+        // Re-initialize AJAX functionality for BP Nouveau
+        if (typeof bp !== 'undefined' && typeof bp.Nouveau !== 'undefined' && typeof bp.Nouveau.objectNavigation !== 'undefined') {
+            bp.Nouveau.objectNavigation.setupGlobalSearch();
+        }
+        
+        // For legacy themes
+        jQuery(document).ajaxComplete(function(event, xhr, settings) {
+            // Re-apply follow buttons after AJAX load
+            if (settings.data && settings.data.indexOf('action=members_filter') >= 0) {
+                if (typeof bp_follow_button_action === 'function') {
+                    jQuery('.follow-button a').off('click').on('click', function() {
+                        bp_follow_button_action(jQuery(this), 'member-loop');
+                        return false;
+                    });
+                }
+            }
+        });
+    });
+    </script>
+    <?php
+    }
 }
